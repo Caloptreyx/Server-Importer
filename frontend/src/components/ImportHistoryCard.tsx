@@ -3,15 +3,18 @@ import {
   faBan,
   faCheck,
   faClockRotateLeft,
+  faRotateLeft,
   faSpinner,
   faTriangleExclamation,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import ActionIcon from '@/elements/buttons/ActionIcon.tsx';
 import Badge from '@/elements/data-display/Badge.tsx';
 import Card from '@/elements/data-display/Card.tsx';
 import TitleCard from '@/elements/data-display/TitleCard.tsx';
 import Group from '@/elements/layout/Group.tsx';
 import Stack from '@/elements/layout/Stack.tsx';
+import Tooltip from '@/elements/overlays/Tooltip.tsx';
 import FormattedTimestamp from '@/elements/time/FormattedTimestamp.tsx';
 import Code from '@/elements/typography/Code.tsx';
 import Text from '@/elements/typography/Text.tsx';
@@ -21,6 +24,7 @@ import { useExtTranslations } from '../translations.ts';
 
 interface Props {
   history: ImportJobRecord[];
+  onReuse?: (job: ImportJobRecord) => void;
 }
 
 const STATUS_COLOR: Record<JobStatus, string> = {
@@ -44,7 +48,7 @@ const STATUS_ICON: Record<JobStatus, typeof faCheck> = {
   cancelled: faBan,
 };
 
-export default function ImportHistoryCard({ history }: Props) {
+export default function ImportHistoryCard({ history, onReuse }: Props) {
   const { t } = useExtTranslations();
 
   const statusLabel = (status: JobStatus) => {
@@ -96,19 +100,34 @@ export default function ImportHistoryCard({ history }: Props) {
                       <Code>{job.destination_path}</Code>
                     </Group>
 
-                    <Text size='xs' c='dimmed' className='shrink-0'>
-                      <FormattedTimestamp timestamp={job.started_at} />
-                    </Text>
+                    <Group gap='xs' className='shrink-0'>
+                      <Text size='xs' c='dimmed'>
+                        <FormattedTimestamp timestamp={job.started_at} />
+                      </Text>
+                      {onReuse ? (
+                        <Tooltip label={t('history.reuse', {})}>
+                          <ActionIcon
+                            size='sm'
+                            variant='subtle'
+                            color='gray'
+                            onClick={() => onReuse(job)}
+                            aria-label={t('history.reuse', {})}
+                          >
+                            <FontAwesomeIcon icon={faRotateLeft} />
+                          </ActionIcon>
+                        </Tooltip>
+                      ) : null}
+                    </Group>
                   </div>
 
                   <Group gap='md' wrap='wrap'>
-                    <Text size='xs' c='dimmed'>
+                    <Text size='xs' c='dimmed' className='tabular-nums'>
                       {t('history.filesSummary', {
                         transferred: job.files_transferred.toLocaleString(),
                         total: job.files_total.toLocaleString(),
                       })}
                     </Text>
-                    <Text size='xs' c='dimmed'>
+                    <Text size='xs' c='dimmed' className='tabular-nums'>
                       {formatBytes(job.bytes_transferred)}
                       {job.bytes_total > 0 ? ` / ${formatBytes(job.bytes_total)}` : ''}
                     </Text>

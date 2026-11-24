@@ -1,7 +1,7 @@
 import { faCloudArrowDown, faFingerprint, faFolderOpen, faPlug, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { httpErrorToHuman } from '@/api/axios.ts';
 import ActionIcon from '@/elements/buttons/ActionIcon.tsx';
 import Button from '@/elements/buttons/Button.tsx';
@@ -16,6 +16,7 @@ import TextInput from '@/elements/input/TextInput.tsx';
 import Group from '@/elements/layout/Group.tsx';
 import SegmentedControl from '@/elements/layout/SegmentedControl.tsx';
 import Stack from '@/elements/layout/Stack.tsx';
+import Tooltip from '@/elements/overlays/Tooltip.tsx';
 import Text from '@/elements/typography/Text.tsx';
 import { useToast } from '@/providers/ToastProvider.tsx';
 import { useServerStore } from '@/stores/server.ts';
@@ -25,6 +26,7 @@ import {
   browseRemote,
   cancelImport,
   getStatus,
+  type ImportJobRecord,
   PACKAGE,
   type PreviewResponse,
   previewRemote,
@@ -70,6 +72,7 @@ export default function ImporterPage() {
   const [cancelling, setCancelling] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const browserRef = useRef<HTMLDivElement | null>(null);
   const wasActive = useRef(false);
   const active = statusQuery.data?.active ?? null;
 
@@ -113,6 +116,7 @@ export default function ImporterPage() {
   };
 
   const runBrowse = async (targetPath: string, notify: boolean) => {
+    const hadBrowser = Boolean(browse);
     setActionError(null);
     setBrowsing(true);
     setPreview(null);
@@ -132,6 +136,11 @@ export default function ImporterPage() {
       }
       if (notify) {
         addToast(t('connection.connectedToast', {}), 'success');
+      }
+      if (!hadBrowser) {
+        window.requestAnimationFrame(() => {
+          browserRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
       }
     } catch (error) {
       setActionError(httpErrorToHuman(error));
@@ -202,6 +211,28 @@ export default function ImporterPage() {
     }
   };
 
+  const handleReuseJob = (job: ImportJobRecord) => {
+    setHost(job.host);
+    setPort(job.port);
+    setUsername(job.username);
+    setAuthMode(job.auth_method === 'private_key' ? 'private_key' : 'password');
+    setSourcePath(job.source_path);
+    setDestinationPath(job.destination_path);
+    setPinnedFingerprint(job.host_fingerprint);
+    setBrowse(null);
+    setPreview(null);
+    setActionError(null);
+    addToast(t('connection.reusedToast', {}), 'success');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleFormSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (canConnect && !browsing && !starting) {
+      void runBrowse(sourcePath || '/', true);
+    }
+  };
+
   const limits = statusQuery.data?.limits;
 
   return (
@@ -212,184 +243,201 @@ export default function ImporterPage() {
         {active ? <ActiveImportCard active={active} cancelling={cancelling} onCancel={handleCancel} /> : null}
 
         <TitleCard title={t('connection.title', {})} icon={<FontAwesomeIcon icon={faPlug} />}>
-          <Stack gap='md'>
-            <Text size='sm' c='dimmed'>
-              {t('connection.description', {})}
-            </Text>
+          <form onSubmit={handleFormSubmit}>
+            <Stack gap='md'>
+              <Text size='sm' c='dimmed'>
+                {t('connection.description', {})}
+              </Text>
 
-            {actionError ? <Alert color='red'>{actionError}</Alert> : null}
+              {actionError ? <Alert color='red'>{actionError}</Alert> : null}
 
-            <div className='grid grid-cols-1 md:grid-cols-12 gap-3'>
-              <div className='md:col-span-6'>
-                <TextInput
-                  label={t('connection.host', {})}
-                  placeholder={t('connection.hostPlaceholder', {})}
-                  value={host}
-                  onChange={(e) => handleHostChange(e.currentTarget.value)}
+              <div className='grid grid-cols-1 md:grid-cols-12 gap-3'>
+                <div className='md:col-span-6'>
+                  <TextInput
+                    label={t('connection.host', {})}
+                    placeholder={t('connection.hostPlaceholder', {})}
+                    value={host}
+                    onChange={(e) => handleHostChange(e.currentTarget.value)}
+                    disabled={starting}
+                  />
+                </div>
+                <div className='md:col-span-2'>
+                  <NumberInput
+                    label={t('connection.port', {})}
+                    min={1}
+                    max={65535}
+                    value={port}
+                    onChange={(v) => {
+                      const parsed = typeof v === 'number' ? v : Number.parseInt(String(v), 10);
+                      if (Number.isFinite(parsed)) setPort(parsed);
+                    }}
+                    disabled={starting}
+                  />
+                </div>
+                <div className='md:col-span-4'>
+                  <TextInput
+                    label={t('connection.username', {})}
+                    placeholder={t('connection.usernamePlaceholder', {})}
+                    value={username}
+                    onChange={(e) => setUsername(e.currentTarget.value)}
+                    disabled={starting}
+                  />
+                </div>
+              </div>
+
+              <Stack gap='xs'>
+                <Text size='sm' fw={500}>
+                  {t('connection.authMethod', {})}
+                </Text>
+                <div>
+                  <SegmentedControl
+                    value={authMode}
+                    onChange={(val) => setAuthMode(val as AuthMode)}
+                    data={[
+                      { value: 'password', label: t('connection.authPassword', {}) },
+                      { value: 'private_key', label: t('connection.authPrivateKey', {}) },
+                    ]}
+                    disabled={starting}
+                  />
+                </div>
+              </Stack>
+
+              {authMode === 'password' ? (
+                <PasswordInput
+                  label={t('connection.password', {})}
+                  placeholder={t('connection.passwordPlaceholder', {})}
+                  value={password}
+                  onChange={(e) => setPassword(e.currentTarget.value)}
                   disabled={starting}
                 />
-              </div>
-              <div className='md:col-span-2'>
-                <NumberInput
-                  label={t('connection.port', {})}
-                  min={1}
-                  max={65535}
-                  value={port}
-                  onChange={(v) => {
-                    const parsed = typeof v === 'number' ? v : Number.parseInt(String(v), 10);
-                    if (Number.isFinite(parsed)) setPort(parsed);
+              ) : (
+                <Stack gap='sm'>
+                  <TextArea
+                    label={t('connection.privateKey', {})}
+                    placeholder={t('connection.privateKeyPlaceholder', {})}
+                    value={privateKey}
+                    onChange={(e) => setPrivateKey(e.currentTarget.value)}
+                    minRows={4}
+                    autosize
+                    maxRows={8}
+                    styles={{ input: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
+                    disabled={starting}
+                  />
+                  <PasswordInput
+                    label={t('connection.passphrase', {})}
+                    placeholder={t('connection.passphrasePlaceholder', {})}
+                    value={passphrase}
+                    onChange={(e) => setPassphrase(e.currentTarget.value)}
+                    disabled={starting}
+                  />
+                </Stack>
+              )}
+
+              <div className='grid grid-cols-1 md:grid-cols-2 gap-3'>
+                <TextInput
+                  label={t('connection.sourcePath', {})}
+                  placeholder={t('connection.sourcePathPlaceholder', {})}
+                  value={sourcePath}
+                  onChange={(e) => {
+                    setSourcePath(e.currentTarget.value);
+                    setPreview(null);
                   }}
                   disabled={starting}
                 />
-              </div>
-              <div className='md:col-span-4'>
                 <TextInput
-                  label={t('connection.username', {})}
-                  placeholder={t('connection.usernamePlaceholder', {})}
-                  value={username}
-                  onChange={(e) => setUsername(e.currentTarget.value)}
+                  label={t('connection.destinationPath', {})}
+                  placeholder={t('connection.destinationPathPlaceholder', {})}
+                  value={destinationPath}
+                  onChange={(e) => setDestinationPath(e.currentTarget.value)}
                   disabled={starting}
                 />
               </div>
-            </div>
 
-            <Stack gap='xs'>
-              <Text size='sm' fw={500}>
-                {t('connection.authMethod', {})}
-              </Text>
-              <div>
-                <SegmentedControl
-                  value={authMode}
-                  onChange={(val) => setAuthMode(val as AuthMode)}
-                  data={[
-                    { value: 'password', label: t('connection.authPassword', {}) },
-                    { value: 'private_key', label: t('connection.authPrivateKey', {}) },
-                  ]}
-                  disabled={starting}
-                />
-              </div>
-            </Stack>
-
-            {authMode === 'password' ? (
-              <PasswordInput
-                label={t('connection.password', {})}
-                placeholder={t('connection.passwordPlaceholder', {})}
-                value={password}
-                onChange={(e) => setPassword(e.currentTarget.value)}
-                disabled={starting}
-              />
-            ) : (
-              <Stack gap='sm'>
-                <TextArea
-                  label={t('connection.privateKey', {})}
-                  placeholder={t('connection.privateKeyPlaceholder', {})}
-                  value={privateKey}
-                  onChange={(e) => setPrivateKey(e.currentTarget.value)}
-                  minRows={4}
-                  autosize
-                  maxRows={8}
-                  styles={{ input: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
-                  disabled={starting}
-                />
-                <PasswordInput
-                  label={t('connection.passphrase', {})}
-                  placeholder={t('connection.passphrasePlaceholder', {})}
-                  value={passphrase}
-                  onChange={(e) => setPassphrase(e.currentTarget.value)}
-                  disabled={starting}
-                />
-              </Stack>
-            )}
-
-            <div className='grid grid-cols-1 md:grid-cols-2 gap-3'>
-              <TextInput
-                label={t('connection.sourcePath', {})}
-                placeholder={t('connection.sourcePathPlaceholder', {})}
-                value={sourcePath}
-                onChange={(e) => {
-                  setSourcePath(e.currentTarget.value);
-                  setPreview(null);
-                }}
-                disabled={starting}
-              />
-              <TextInput
-                label={t('connection.destinationPath', {})}
-                placeholder={t('connection.destinationPathPlaceholder', {})}
-                value={destinationPath}
-                onChange={(e) => setDestinationPath(e.currentTarget.value)}
-                disabled={starting}
-              />
-            </div>
-
-            {pinnedFingerprint ? (
-              <Group gap='xs'>
-                <Badge color='teal' variant='light' leftSection={<FontAwesomeIcon icon={faFingerprint} />}>
-                  {t('connection.fingerprintPinned', { fingerprint: pinnedFingerprint })}
-                </Badge>
-                <ActionIcon
-                  size='xs'
-                  variant='subtle'
-                  color='gray'
-                  onClick={() => setPinnedFingerprint(null)}
-                  aria-label={t('connection.fingerprintReset', {})}
-                >
-                  <FontAwesomeIcon icon={faXmark} />
-                </ActionIcon>
-              </Group>
-            ) : null}
-
-            <Group justify='space-between' wrap='wrap' gap='sm'>
-              <Group gap='sm'>
-                <Button
-                  variant='light'
-                  leftSection={<FontAwesomeIcon icon={faFolderOpen} />}
-                  loading={browsing}
-                  disabled={!canConnect || starting}
-                  onClick={() => void runBrowse(sourcePath || '/', true)}
-                >
-                  {t('connection.testAndBrowse', {})}
-                </Button>
-                <Button
-                  leftSection={<FontAwesomeIcon icon={faCloudArrowDown} />}
-                  loading={starting}
-                  disabled={!canConnect || Boolean(active) || browsing}
-                  onClick={() => void handleStart()}
-                >
-                  {t('connection.startImport', {})}
-                </Button>
-              </Group>
-
-              {limits ? (
-                <Text size='xs' c='dimmed'>
-                  {t('connection.limitsNote', {
-                    size:
-                      limits.max_import_size_mb > 0
-                        ? formatBytes(limits.max_import_size_mb * 1024 * 1024)
-                        : t('connection.limitsUnlimited', {}),
-                    files:
-                      limits.max_import_files > 0
-                        ? limits.max_import_files.toLocaleString()
-                        : t('connection.limitsUnlimited', {}),
-                  })}
-                </Text>
+              {pinnedFingerprint ? (
+                <Group gap='xs'>
+                  <Badge
+                    color='teal'
+                    variant='light'
+                    leftSection={<FontAwesomeIcon icon={faFingerprint} />}
+                    className='max-w-full'
+                  >
+                    <span className='font-mono text-[11px] truncate'>
+                      {t('connection.fingerprintPinned', { fingerprint: pinnedFingerprint })}
+                    </span>
+                  </Badge>
+                  <Tooltip label={t('connection.fingerprintReset', {})}>
+                    <ActionIcon
+                      size='xs'
+                      variant='subtle'
+                      color='gray'
+                      onClick={() => setPinnedFingerprint(null)}
+                      aria-label={t('connection.fingerprintReset', {})}
+                    >
+                      <FontAwesomeIcon icon={faXmark} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Group>
               ) : null}
-            </Group>
-          </Stack>
+
+              <Group justify='space-between' wrap='wrap' gap='sm'>
+                <Group gap='sm'>
+                  <Button
+                    type='submit'
+                    variant='light'
+                    leftSection={<FontAwesomeIcon icon={faFolderOpen} />}
+                    loading={browsing}
+                    disabled={!canConnect || starting}
+                  >
+                    {t('connection.testAndBrowse', {})}
+                  </Button>
+                  <Button
+                    type='button'
+                    leftSection={<FontAwesomeIcon icon={faCloudArrowDown} />}
+                    loading={starting}
+                    disabled={!canConnect || Boolean(active) || browsing}
+                    onClick={() => void handleStart()}
+                  >
+                    {t('connection.startImport', {})}
+                  </Button>
+                </Group>
+
+                {limits ? (
+                  <Text size='xs' c='dimmed'>
+                    {t('connection.limitsNote', {
+                      size:
+                        limits.max_import_size_mb > 0
+                          ? formatBytes(limits.max_import_size_mb * 1024 * 1024)
+                          : t('connection.limitsUnlimited', {}),
+                      files:
+                        limits.max_import_files > 0
+                          ? limits.max_import_files.toLocaleString()
+                          : t('connection.limitsUnlimited', {}),
+                    })}
+                  </Text>
+                ) : null}
+              </Group>
+            </Stack>
+          </form>
         </TitleCard>
 
         {browse ? (
-          <RemoteBrowserCard
-            browse={browse}
-            browsing={browsing}
-            preview={preview}
-            previewing={previewing}
-            onNavigate={(nextPath) => void runBrowse(nextPath, false)}
-            onRefresh={() => void runBrowse(browse.resolved_path, false)}
-            onPreview={() => void runPreview()}
-          />
+          <div ref={browserRef}>
+            <RemoteBrowserCard
+              browse={browse}
+              browsing={browsing}
+              preview={preview}
+              previewing={previewing}
+              canStart={canConnect && !active}
+              starting={starting}
+              onNavigate={(nextPath) => void runBrowse(nextPath, false)}
+              onRefresh={() => void runBrowse(browse.resolved_path, false)}
+              onPreview={() => void runPreview()}
+              onStartImport={() => void handleStart()}
+            />
+          </div>
         ) : null}
 
-        <ImportHistoryCard history={statusQuery.data?.history ?? []} />
+        <ImportHistoryCard history={statusQuery.data?.history ?? []} onReuse={handleReuseJob} />
       </Stack>
     </ServerContentContainer>
   );

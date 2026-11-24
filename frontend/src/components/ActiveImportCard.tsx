@@ -6,6 +6,7 @@ import {
   faTriangleExclamation,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { useEffect, useState } from 'react';
 import Button from '@/elements/buttons/Button.tsx';
 import Badge from '@/elements/data-display/Badge.tsx';
 import TitleCard from '@/elements/data-display/TitleCard.tsx';
@@ -25,8 +26,23 @@ interface Props {
   onCancel: () => void;
 }
 
+function computeElapsed(startedAt: string): number | null {
+  const ms = Date.parse(startedAt);
+  if (Number.isNaN(ms)) return null;
+  return Math.max(0, Math.floor((Date.now() - ms) / 1000));
+}
+
 export default function ActiveImportCard({ active, cancelling, onCancel }: Props) {
   const { t } = useExtTranslations();
+  const [elapsed, setElapsed] = useState<number | null>(() => computeElapsed(active.started_at));
+
+  useEffect(() => {
+    setElapsed(computeElapsed(active.started_at));
+    const timer = window.setInterval(() => {
+      setElapsed(computeElapsed(active.started_at));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [active.started_at]);
 
   const phaseLabel = (phase: ImportPhase) => {
     switch (phase) {
@@ -52,7 +68,7 @@ export default function ActiveImportCard({ active, cancelling, onCancel }: Props
       title={t('active.title', {})}
       icon={<FontAwesomeIcon icon={faCloudArrowDown} />}
       rightSection={
-        <Group gap='xs'>
+        <Group gap='xs' className='ml-auto'>
           <Badge color='blue' variant='light'>
             {phaseLabel(active.phase)}
           </Badge>
@@ -81,39 +97,58 @@ export default function ActiveImportCard({ active, cancelling, onCancel }: Props
 
         <Progress value={pct} indeterminate={indeterminate} color='blue' />
 
-        <div className='grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm'>
-          <div>
+        <div className='grid grid-cols-2 sm:grid-cols-5 gap-2'>
+          <div className='rounded-md border border-(--mantine-color-default-border) px-3 py-2'>
             <Text size='xs' c='dimmed'>
-              {t('active.filesProgress', {
-                transferred: active.files_transferred.toLocaleString(),
-                total: active.files_total.toLocaleString(),
-              })}
+              {t('active.filesLabel', {})}
+            </Text>
+            <Text size='sm' fw={600} className='tabular-nums'>
+              {active.files_transferred.toLocaleString()} / {active.files_total.toLocaleString()}
             </Text>
           </div>
-          <div>
+          <div className='rounded-md border border-(--mantine-color-default-border) px-3 py-2'>
             <Text size='xs' c='dimmed'>
-              {t('active.bytesProgress', {
-                transferred: formatBytes(active.bytes_transferred),
-                total: formatBytes(active.bytes_total),
-              })}
+              {t('active.dataLabel', {})}
+            </Text>
+            <Text size='sm' fw={600} className='tabular-nums'>
+              {formatBytes(active.bytes_transferred)} / {formatBytes(active.bytes_total)}
             </Text>
           </div>
-          <div>
+          <div className='rounded-md border border-(--mantine-color-default-border) px-3 py-2'>
             <Text size='xs' c='dimmed'>
-              {t('active.speed', {})}: {formatSpeed(active.bytes_per_second)}
+              {t('active.speed', {})}
+            </Text>
+            <Text size='sm' fw={600} className='tabular-nums'>
+              {formatSpeed(active.bytes_per_second)}
             </Text>
           </div>
-          <div>
+          <div className='rounded-md border border-(--mantine-color-default-border) px-3 py-2'>
             <Text size='xs' c='dimmed'>
-              {t('active.eta', {})}: {active.eta_seconds !== null ? formatDuration(active.eta_seconds) : '—'}
+              {t('active.eta', {})}
+            </Text>
+            <Text size='sm' fw={600} className='tabular-nums'>
+              {active.eta_seconds !== null ? formatDuration(active.eta_seconds) : '—'}
+            </Text>
+          </div>
+          <div className='rounded-md border border-(--mantine-color-default-border) px-3 py-2 col-span-2 sm:col-span-1'>
+            <Text size='xs' c='dimmed'>
+              {t('active.elapsed', {})}
+            </Text>
+            <Text size='sm' fw={600} className='tabular-nums'>
+              {elapsed !== null ? formatDuration(elapsed) : '—'}
             </Text>
           </div>
         </div>
 
         <Group gap='xs' wrap='wrap'>
           {active.host_fingerprint ? (
-            <Badge color='gray' variant='light' leftSection={<FontAwesomeIcon icon={faFingerprint} />}>
-              {active.host_fingerprint}
+            <Badge
+              color='gray'
+              variant='light'
+              leftSection={<FontAwesomeIcon icon={faFingerprint} />}
+              className='max-w-full'
+            >
+              <span className='font-mono text-[11px] truncate'>{active.host_fingerprint}</span>
             </Badge>
           ) : null}
           {active.files_skipped > 0 ? (
@@ -140,13 +175,15 @@ export default function ActiveImportCard({ active, cancelling, onCancel }: Props
             icon={<FontAwesomeIcon icon={faTriangleExclamation} />}
             title={t('active.recentErrors', {})}
           >
-            <Stack gap={4}>
-              {active.recent_errors.map((err, idx) => (
-                <Text key={idx} size='xs' className='break-all'>
-                  {err}
-                </Text>
-              ))}
-            </Stack>
+            <div className='max-h-40 overflow-y-auto'>
+              <Stack gap={4}>
+                {active.recent_errors.map((err, idx) => (
+                  <Text key={idx} size='xs' className='break-all'>
+                    {err}
+                  </Text>
+                ))}
+              </Stack>
+            </div>
           </Alert>
         ) : null}
       </Stack>
