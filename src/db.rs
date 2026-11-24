@@ -1,4 +1,4 @@
-//! Persisted SFTP import job records. Credentials are never stored here.
+//! Persisted SFTP import job records and user-owned encrypted saved logins.
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use shared::database::Database;
@@ -27,6 +27,62 @@ pub struct JobRecord {
     pub error: Option<String>,
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
+}
+
+/// Public representation of a saved SFTP login. Encrypted secrets are never serialized or returned.
+#[derive(Clone, Debug, Serialize, sqlx::FromRow)]
+pub struct SavedLogin {
+    pub id: Uuid,
+    pub name: String,
+    pub host: String,
+    pub port: i32,
+    pub username: String,
+    pub auth_method: String,
+    pub has_passphrase: bool,
+    pub default_source_path: String,
+    pub host_fingerprint: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub last_used_at: Option<DateTime<Utc>>,
+}
+
+/// Internal record including encrypted credentials, used only inside the backend to connect.
+#[derive(sqlx::FromRow)]
+pub struct SavedLoginSecret {
+    pub id: Uuid,
+    pub host: String,
+    pub port: i32,
+    pub username: String,
+    pub auth_method: String,
+    pub secret_encrypted: Vec<u8>,
+    pub passphrase_encrypted: Option<Vec<u8>>,
+    pub host_fingerprint: Option<String>,
+}
+
+pub struct NewSavedLogin<'a> {
+    pub id: Uuid,
+    pub user_uuid: Uuid,
+    pub name: &'a str,
+    pub host: &'a str,
+    pub port: u16,
+    pub username: &'a str,
+    pub auth_method: &'a str,
+    pub secret_encrypted: &'a [u8],
+    pub passphrase_encrypted: Option<&'a [u8]>,
+    pub default_source_path: &'a str,
+    pub host_fingerprint: Option<&'a str>,
+}
+
+pub struct UpdateSavedLogin<'a> {
+    pub id: Uuid,
+    pub user_uuid: Uuid,
+    pub name: &'a str,
+    pub host: &'a str,
+    pub port: u16,
+    pub username: &'a str,
+    pub default_source_path: &'a str,
+    pub host_fingerprint: Option<&'a str>,
+    pub credentials: Option<(&'a str, &'a [u8], Option<&'a [u8]>)>,
 }
 
 pub struct NewJob<'a> {
@@ -145,4 +201,174 @@ pub async fn list_jobs(
     .bind(limit)
     .fetch_all(db.read())
     .await
+}
+
+pub async fn list_saved_logins(
+    db: &Database,
+    user_uuid: Uuid,
+) -> Result<Vec<SavedLogin>, sqlx::Error> {
+    sqlx::query_as::<_, SavedLogin>(
+        "SELECT id, name, host, port, username, auth_method,
+                (passphrase_encrypted IS NOT NULL) AS has_passphrase,
+                default_source_path, host_fingerprint, created_at, updated_at, last_used_at
+         FROM dev_caloptreyx_serverimporter_logins
+         WHERE user_uuid = $1
+         ORDER BY COALESCE(last_used_at, updated_at) DESC, name ASC",
+    )
+    .bind(user_uuid)
+    .fetch_all(db.read())
+    .await
+}
+
+pub async fn count_saved_logins(db: &Database, user_uuid: Uuid) -> Result<i64, sqlx::Error> {
+    let (count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM dev_caloptreyx_serverimporter_logins WHERE user_uuid = $1",
+    )
+    .bind(user_uuid)
+    .fetch_one(db.read())
+    .await?;
+    Ok(count)
+}
+
+pub async fn get_saved_login_secret(
+    db: &Database,
+    id: Uuid,
+    user_uuid: Uuid,
+) -> Result<Option<SavedLoginSecret>, sqlx::Error> {
+    sqlx::query_as::<_, SavedLoginSecret>(
+        "SELECT id, host, port, username, auth_method, secret_encrypted,
+                passphrase_encrypted, host_fingerprint
+         FROM dev_caloptreyx_serverimporter_logins
+         WHERE id = $1 AND user_uuid = $2",
+    )
+    .bind(id)
+    .bind(user_uuid)
+    .fetch_optional(db.read())
+    .await
+}
+
+pub async fn create_saved_login(
+    db: &Database,
+    login: &NewSavedLogin<'_>,
+) -> Result<SavedLogin, sqlx::Error> {
+    sqlx::query_as::<_, SavedLogin>(
+        "INSERT INTO dev_caloptreyx_serverimporter_logins (
+            id, user_uuid, name, host, port, username, auth_method,
+            secret_encrypted, passphrase_encrypted, default_source_path, host_fingerprint
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         RETURNING id, name, host, port, username, auth_method,
+                   (passphrase_encrypted IS NOT NULL) AS has_passphrase,
+                   default_source_path, host_fingerprint, created_at, updated_at, last_used_at",
+    )
+    .bind(login.id)
+    .bind(login.user_uuid)
+    .bind(login.name)
+    .bind(login.host)
+    .bind(i32::from(login.port))
+    .bind(login.username)
+    .bind(login.auth_method)
+    .bind(login.secret_encrypted)
+    .bind(login.passphrase_encrypted)
+    .bind(login.default_source_path)
+    .bind(login.host_fingerprint)
+    .fetch_one(db.write())
+    .await
+}
+
+pub async fn update_saved_login(
+    db: &Database,
+    update: &UpdateSavedLogin<'_>,
+) -> Result<Option<SavedLogin>, sqlx::Error> {
+    if let Some((auth_method, secret_encrypted, passphrase_encrypted)) = update.credentials {
+        sqlx::query_as::<_, SavedLogin>(
+            "UPDATE dev_caloptreyx_serverimporter_logins
+             SET name = $3,
+                 host = $4,
+                 port = $5,
+                 username = $6,
+                 default_source_path = $7,
+                 host_fingerprint = $8,
+                 auth_method = $9,
+                 secret_encrypted = $10,
+                 passphrase_encrypted = $11,
+                 updated_at = now()
+             WHERE id = $1 AND user_uuid = $2
+             RETURNING id, name, host, port, username, auth_method,
+                       (passphrase_encrypted IS NOT NULL) AS has_passphrase,
+                       default_source_path, host_fingerprint, created_at, updated_at, last_used_at",
+        )
+        .bind(update.id)
+        .bind(update.user_uuid)
+        .bind(update.name)
+        .bind(update.host)
+        .bind(i32::from(update.port))
+        .bind(update.username)
+        .bind(update.default_source_path)
+        .bind(update.host_fingerprint)
+        .bind(auth_method)
+        .bind(secret_encrypted)
+        .bind(passphrase_encrypted)
+        .fetch_optional(db.write())
+        .await
+    } else {
+        sqlx::query_as::<_, SavedLogin>(
+            "UPDATE dev_caloptreyx_serverimporter_logins
+             SET name = $3,
+                 host = $4,
+                 port = $5,
+                 username = $6,
+                 default_source_path = $7,
+                 host_fingerprint = $8,
+                 updated_at = now()
+             WHERE id = $1 AND user_uuid = $2
+             RETURNING id, name, host, port, username, auth_method,
+                       (passphrase_encrypted IS NOT NULL) AS has_passphrase,
+                       default_source_path, host_fingerprint, created_at, updated_at, last_used_at",
+        )
+        .bind(update.id)
+        .bind(update.user_uuid)
+        .bind(update.name)
+        .bind(update.host)
+        .bind(i32::from(update.port))
+        .bind(update.username)
+        .bind(update.default_source_path)
+        .bind(update.host_fingerprint)
+        .fetch_optional(db.write())
+        .await
+    }
+}
+
+pub async fn touch_saved_login_usage(
+    db: &Database,
+    id: Uuid,
+    user_uuid: Uuid,
+    fingerprint: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE dev_caloptreyx_serverimporter_logins
+         SET last_used_at = now(),
+             host_fingerprint = COALESCE($3, host_fingerprint)
+         WHERE id = $1 AND user_uuid = $2",
+    )
+    .bind(id)
+    .bind(user_uuid)
+    .bind(fingerprint.filter(|f| !f.trim().is_empty()))
+    .execute(db.write())
+    .await?;
+    Ok(())
+}
+
+pub async fn delete_saved_login(
+    db: &Database,
+    id: Uuid,
+    user_uuid: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let res = sqlx::query(
+        "DELETE FROM dev_caloptreyx_serverimporter_logins WHERE id = $1 AND user_uuid = $2",
+    )
+    .bind(id)
+    .bind(user_uuid)
+    .execute(db.write())
+    .await?;
+    Ok(res.rows_affected() > 0)
 }

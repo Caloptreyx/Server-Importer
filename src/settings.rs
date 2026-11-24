@@ -21,6 +21,13 @@ pub struct Settings {
     /// Allow connecting to loopback, link-local, or private network addresses.
     /// Off by default to prevent SSRF against the panel host and internal LAN.
     pub allow_private_networks: bool,
+    /// Allow users to save encrypted SFTP logins for reuse across their servers.
+    #[serde(default = "default_allow_saved_logins")]
+    pub allow_saved_logins: bool,
+}
+
+fn default_allow_saved_logins() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -31,6 +38,7 @@ impl Default for Settings {
             max_import_files: 50_000,
             connection_timeout_secs: 20,
             allow_private_networks: false,
+            allow_saved_logins: true,
         }
     }
 }
@@ -105,7 +113,8 @@ impl SettingsSerializeExt for Settings {
             .write_serde_setting("max_import_size_mb", &self.max_import_size_mb)?
             .write_serde_setting("max_import_files", &self.max_import_files)?
             .write_serde_setting("connection_timeout_secs", &self.connection_timeout_secs)?
-            .write_serde_setting("allow_private_networks", &self.allow_private_networks)?)
+            .write_serde_setting("allow_private_networks", &self.allow_private_networks)?
+            .write_serde_setting("allow_saved_logins", &self.allow_saved_logins)?)
     }
 }
 
@@ -132,6 +141,7 @@ impl SettingsDeserializeExt for SettingsDataDeserializer {
                 d.connection_timeout_secs
             ),
             allow_private_networks: serde_or!("allow_private_networks", d.allow_private_networks),
+            allow_saved_logins: serde_or!("allow_saved_logins", d.allow_saved_logins),
         }))
     }
 }

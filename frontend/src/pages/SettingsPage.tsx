@@ -106,6 +106,14 @@ export default function SettingsPage() {
           </div>
 
           <Switch
+            label={t('settings.allowSavedLogins', {})}
+            description={t('settings.allowSavedLoginsDescription', {})}
+            checked={form.allow_saved_logins}
+            onChange={(e) => setForm({ ...form, allow_saved_logins: e.currentTarget.checked })}
+            disabled={!canManage}
+          />
+
+          <Switch
             label={t('settings.allowPrivateNetworks', {})}
             description={t('settings.allowPrivateNetworksDescription', {})}
             checked={form.allow_private_networks}

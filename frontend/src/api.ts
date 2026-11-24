@@ -8,6 +8,8 @@ export type AuthPayload =
   | { type: 'password'; password: string }
   | { type: 'private_key'; private_key: string; passphrase?: string };
 
+export type AuthMethod = 'password' | 'private_key';
+
 export type EntryKind = 'directory' | 'file' | 'symlink' | 'other';
 
 export interface RemoteEntry {
@@ -87,6 +89,21 @@ export interface ImportJobRecord {
   finished_at: string | null;
 }
 
+export interface SavedLogin {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  auth_method: AuthMethod;
+  has_passphrase: boolean;
+  default_source_path: string;
+  host_fingerprint: string | null;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+}
+
 export interface ImporterLimits {
   max_import_size_mb: number;
   max_import_files: number;
@@ -96,26 +113,50 @@ export interface ImporterLimits {
 export interface StatusResponse {
   active: ActiveImport | null;
   history: ImportJobRecord[];
+  saved_logins: SavedLogin[];
+  allow_saved_logins: boolean;
   limits: ImporterLimits;
 }
 
 export interface BrowseRequest {
+  saved_login_id?: string;
   host: string;
   port: number;
   username: string;
-  auth: AuthPayload;
+  auth?: AuthPayload;
   path: string;
   expected_fingerprint?: string;
 }
 
 export interface StartImportRequest {
+  saved_login_id?: string;
+  host: string;
+  port: number;
+  username: string;
+  auth?: AuthPayload;
+  source_path: string;
+  destination_path: string;
+  expected_fingerprint?: string;
+}
+
+export interface CreateSavedLoginRequest {
+  name: string;
   host: string;
   port: number;
   username: string;
   auth: AuthPayload;
-  source_path: string;
-  destination_path: string;
-  expected_fingerprint?: string;
+  default_source_path: string;
+  host_fingerprint?: string;
+}
+
+export interface UpdateSavedLoginRequest {
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  auth?: AuthPayload;
+  default_source_path: string;
+  host_fingerprint?: string;
 }
 
 export interface Settings {
@@ -124,10 +165,30 @@ export interface Settings {
   max_import_files: number;
   connection_timeout_secs: number;
   allow_private_networks: boolean;
+  allow_saved_logins: boolean;
 }
 
 export async function getStatus(server: string): Promise<StatusResponse> {
   const { data } = await axiosInstance.get<StatusResponse>(`${base(server)}/status`);
+  return data;
+}
+
+export async function createSavedLogin(server: string, payload: CreateSavedLoginRequest): Promise<SavedLogin> {
+  const { data } = await axiosInstance.post<{ login: SavedLogin }>(`${base(server)}/saved-logins`, payload);
+  return data.login;
+}
+
+export async function updateSavedLogin(
+  server: string,
+  loginId: string,
+  payload: UpdateSavedLoginRequest,
+): Promise<SavedLogin> {
+  const { data } = await axiosInstance.put<{ login: SavedLogin }>(`${base(server)}/saved-logins/${loginId}`, payload);
+  return data.login;
+}
+
+export async function deleteSavedLogin(server: string, loginId: string): Promise<{ deleted: boolean }> {
+  const { data } = await axiosInstance.delete<{ deleted: boolean }>(`${base(server)}/saved-logins/${loginId}`);
   return data;
 }
 
