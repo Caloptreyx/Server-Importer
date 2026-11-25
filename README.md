@@ -29,6 +29,20 @@ Package name: `dev.caloptreyx.serverimporter` · Requires panel `>=1.2.10`
   default (SSRF protection, overridable by admins), skips symlinks safely, respects subuser
   ignored-file rules, and enforces configurable concurrency, file count, and total size limits.
 
+## Screenshots
+
+**SFTP connection & saved logins**: connect via password or SSH private key, reuse encrypted saved logins, and review import history.
+
+![Server Importer SFTP connection and history](docs/screenshots/importer.png)
+
+**Remote folder browser**: verify the SSH host-key fingerprint, browse remote directories, calculate folder size, and start an import.
+
+![Remote SFTP folder browser](docs/screenshots/remote-browser.png)
+
+**Admin settings**: configure concurrency, import size and file limits, saved-login availability, and private network protections.
+
+![Server Importer admin settings](docs/screenshots/admin-settings.png)
+
 ## Permissions
 
 - `server-importer.import` — browse a remote SFTP host, manage your own saved logins, and
